@@ -18,6 +18,10 @@
 */
 
 #ifdef USE_GPS
+#if defined(ESP32) && defined(USE_FLOG)
+  #undef USE_FLOG
+  #warning FLOG deactivated on ESP32
+#endif //ESP32
 /*********************************************************************************************\
   --------------------------------------------------------------------------------------------
   Version Date      Action    Description
@@ -115,6 +119,10 @@ rule3 on tele-FLOG#sec do DisplayText  [f0c1l4]SAV:%value%  endon on tele-FLOG#r
 #include "NTPServer.h"
 #include "NTPPacket.h"
 
+#ifdef ESP32
+#include <HardwareSerial.h>
+#endif
+
 /*********************************************************************************************\
  * constants
 \*********************************************************************************************/
@@ -129,6 +137,7 @@ const char kUBXTypes[] PROGMEM = "UBX";
 
 #define UBX_SERIAL_BUFFER_SIZE 256
 #define UBX_TCP_PORT           1234
+#define NTP_MILLIS_OFFSET      50              // estimated latency in milliseconds 
 
 /********************************************************************************************\
 | *globals
@@ -251,7 +260,8 @@ struct UBX_t {
     uint32_t last_vAcc;
     uint8_t gpsFix;
     uint8_t non_empty_loops;   // in case of an unintended reset of the GPS, the serial interface will get flooded with NMEA
-    uint16_t log_interval;  // in tenth of seconds
+    uint16_t log_interval;     // in tenth of seconds
+    int32_t timeOffset;        // roughly computed offset millis() - iTOW
   } state;
 
   struct {
@@ -260,6 +270,7 @@ struct UBX_t {
     uint32_t send_when_new:1; // no teleinterval
     uint32_t send_UI_only:1;
     uint32_t runningNTP:1;
+    // uint32_t blockedNTP:1;
     uint32_t forceUTCupdate:1;
     uint32_t runningVPort:1;
     // TODO: more to come
@@ -288,7 +299,11 @@ enum UBXMsgType {
 #ifdef USE_FLOG
 FLOG *Flog = nullptr;
 #endif //USE_FLOG
+#ifdef ESP8266
 TasmotaSerial *UBXSerial;
+#else
+HardwareSerial *UBXSerial;
+#endif
 
 NtpServer timeServer(PortUdp);
 
@@ -322,6 +337,15 @@ void UBXinitCFG(void)
   DEBUG_SENSOR_LOG(PSTR("UBX: turn off NMEA"));
 }
 
+void UBXsendCFGLine(uint8_t _line)
+{
+  if (_line>sizeof(UBLOX_INIT)/16) return;
+  for (uint32_t i = 0; i < 16; i++) {
+    UBXSerial->write( pgm_read_byte(UBLOX_INIT+i+(_line*16)) );
+  }
+  DEBUG_SENSOR_LOG(PSTR("UBX: send line %u of UBLOX_INIT"), _line);
+}
+
 void UBXTriggerTele(void)
 {
   mqtt_data[0] = '\0';
@@ -339,13 +363,21 @@ void UBXDetect(void)
 {
   UBX.mode.init = 0;
   if ((pin[GPIO_GPS_RX] < 99) && (pin[GPIO_GPS_TX] < 99)) {
+#ifdef ESP8266
     UBXSerial = new TasmotaSerial(pin[GPIO_GPS_RX], pin[GPIO_GPS_TX], 1, 0, UBX_SERIAL_BUFFER_SIZE); // 64 byte buffer is NOT enough
     if (UBXSerial->begin(9600)) {
+#else
+    UBXSerial = new HardwareSerial(2);
+    UBXSerial->begin(9600,SERIAL_8N1,pin[GPIO_GPS_RX], pin[GPIO_GPS_TX]);
+    {
+#endif
       DEBUG_SENSOR_LOG(PSTR("UBX: started serial"));
+#ifdef ESP8266
       if (UBXSerial->hardwareSerial()) {
         ClaimSerial();
         DEBUG_SENSOR_LOG(PSTR("UBX: claim HW"));
       }
+#endif
     }
   }
   else {
@@ -583,6 +615,8 @@ void UBXSelectMode(uint16_t mode)
       break;
     case 10:
       UBX.mode.runningNTP = false;
+      UBXsendCFGLine(10); //NAV-POSLLH on
+      UBXsendCFGLine(11); //NAV-STATUS on
       break;
     case 11:
       UBX.mode.forceUTCupdate = true;
@@ -604,7 +638,6 @@ void UBXSelectMode(uint16_t mode)
       break;
     default:
       if (mode>1000 && mode <1066) {
-        // UBXSetRate(mode-1000); // min. 1001 = 0.001 Hz, but will be converted to 1/65535 anyway ~0.015 Hz, max. 2000 = 1.000 Hz
         UBXSetRate(mode-1000); // set interval between measurements in seconds from 1 to 65
       }
       break;
@@ -629,12 +662,15 @@ bool UBXHandlePOSLLH()
     UBX.rec_buffer.values.lon = UBX.Message.navPosllh.lon;
     DEBUG_SENSOR_LOG(PSTR("UBX: lat/lon: %i / %i"), UBX.rec_buffer.values.lat, UBX.rec_buffer.values.lon);
     DEBUG_SENSOR_LOG(PSTR("UBX: hAcc: %d"), UBX.Message.navPosllh.hAcc);
-    UBX.state.last_iTOW = UBX.Message.navPosllh.iTOW;
     UBX.state.last_alt = UBX.Message.navPosllh.alt;
     UBX.state.last_vAcc = UBX.Message.navPosllh.vAcc;
     UBX.state.last_hAcc = UBX.Message.navPosllh.hAcc;
     if (UBX.mode.send_when_new) {
       UBXTriggerTele();
+    }
+    if (UBX.mode.runningNTP){ // after receiving pos-data at least once -> go to pure NTP-mode
+      UBXsendCFGLine(7); //NAV-POSLLH off
+      UBXsendCFGLine(8); //NAV-STATUS off
     }
     return true; // new position
   } else {
@@ -657,9 +693,9 @@ void UBXHandleTIME()
 {
   DEBUG_SENSOR_LOG(PSTR("UBX: UTC-Time: %u-%u-%u %u:%u:%u"), UBX.Message.navTime.year, UBX.Message.navTime.month ,UBX.Message.navTime.day,UBX.Message.navTime.hour,UBX.Message.navTime.min,UBX.Message.navTime.sec);
   if (UBX.Message.navTime.valid.UTC == 1) {
+    UBX.state.timeOffset =  millis(); // iTOW%1000 should be 0 here, when NTP-server is enabled and in "pure mode"
     DEBUG_SENSOR_LOG(PSTR("UBX: UTC-Time is valid"));
-    if (Rtc.user_time_entry == false || UBX.mode.forceUTCupdate) {
-      AddLog_P(LOG_LEVEL_INFO, PSTR("UBX: UTC-Time is valid, set system time"));
+    if (Rtc.user_time_entry == false || UBX.mode.forceUTCupdate || UBX.mode.runningNTP) {
       TIME_T gpsTime;
       gpsTime.year = UBX.Message.navTime.year - 1970;
       gpsTime.month = UBX.Message.navTime.month;
@@ -667,7 +703,11 @@ void UBXHandleTIME()
       gpsTime.hour = UBX.Message.navTime.hour;
       gpsTime.minute = UBX.Message.navTime.min;
       gpsTime.second = UBX.Message.navTime.sec;
-      Rtc.utc_time = MakeTime(gpsTime);
+      UBX.rec_buffer.values.time = MakeTime(gpsTime);
+      if (UBX.mode.forceUTCupdate || Rtc.user_time_entry == false){
+        AddLog_P(LOG_LEVEL_INFO, PSTR("UBX: UTC-Time is valid, set system time"));
+        Rtc.utc_time = UBX.rec_buffer.values.time;
+      } 
       Rtc.user_time_entry = true;
     }
   }
@@ -705,7 +745,7 @@ void UBXLoop50msec(void)
   }
   // handle NTP-server
   if(UBX.mode.runningNTP){
-    timeServer.processOneRequest(Rtc.utc_time, UBX.state.last_iTOW%1000);
+    timeServer.processOneRequest(UBX.rec_buffer.values.time, UBX.state.timeOffset - NTP_MILLIS_OFFSET);
   }
 }
 

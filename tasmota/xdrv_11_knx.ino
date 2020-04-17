@@ -556,8 +556,7 @@ void KNX_CB_Action(message_t const &msg, void *arg)
 
   if (msg.data_len == 1) {
     // COMMAND
-    tempchar[0] = msg.data[0];
-    tempchar[1] = '\0';
+    sprintf(tempchar,"%d",msg.data[0]);
   }  else  {
     // VALUE
     float tempvar = knx.data_to_2byte_float(msg.data);
@@ -760,13 +759,13 @@ const char HTTP_FORM_KNX[] PROGMEM =
   "<input style='width:12%%;' type='number' name='line' min='0' max='15' value='%d'> . "
   "<input style='width:12%%;' type='number' name='member' min='0' max='255' value='%d'>"
   "<br><br>" D_KNX_PHYSICAL_ADDRESS_NOTE "<br><br>"
-  "<input id='b1' type='checkbox'";
+  "<label><input id='b1' type='checkbox'";
 
 const char HTTP_FORM_KNX1[] PROGMEM =
-  "><b>" D_KNX_ENABLE "</b>&emsp;<input id='b2' type='checkbox'";
+  "><b>" D_KNX_ENABLE "</b></label>&emsp;<label><input id='b2' type='checkbox'";
 
 const char HTTP_FORM_KNX2[] PROGMEM =
-  "><b>" D_KNX_ENHANCEMENT "</b><br></center><br>"
+  "><b>" D_KNX_ENHANCEMENT "</b></label><br></center><br>"
 
   "<fieldset><center>"
   "<b>" D_KNX_GROUP_ADDRESS_TO_WRITE "</b><hr>"

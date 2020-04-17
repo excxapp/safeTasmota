@@ -17,6 +17,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+
 #ifdef USE_SCRIPT
 #ifndef USE_RULES
 /*********************************************************************************************\
@@ -59,6 +60,10 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #define PMEM_SIZE sizeof(Settings.script_pram)
 #define SCRIPT_MAXPERM (PMEM_SIZE)-4/sizeof(float)
 #define MAX_SCRIPT_SIZE MAX_RULE_SIZE*MAX_RULE_SETS
+
+
+uint32_t EncodeLightId(uint8_t relay_id);
+uint32_t DecodeLightId(uint32_t hue_id);
 
 // offsets epoch readings by 1.1.2019 00:00:00 to fit into float with second resolution
 #define EPOCH_OFFSET 1546300800
@@ -1508,9 +1513,9 @@ chknext:
             lp=GetNumericResult(lp,OPER_EQU,&fvar2,0);
             SCRIPT_SKIP_SPACES
             fvar=fvar1;
-            if ((*opp=='<' && fvar1<fvar2) || 
-                (*opp=='>' && fvar1>fvar2) || 
-                (*opp=='=' && fvar1==fvar2)) 
+            if ((*opp=='<' && fvar1<fvar2) ||
+                (*opp=='>' && fvar1>fvar2) ||
+                (*opp=='=' && fvar1==fvar2))
             {
               if (*lp!='<' && *lp!='>' && *lp!='=' && *lp!=')' && *lp!=SCRIPT_EOL) {
                 float fvar3;
@@ -1759,13 +1764,18 @@ chknext:
             float fvar3;
             lp=GetNumericResult(lp,OPER_EQU,&fvar3,0);
             fvar=SML_SetBaud(fvar1,fvar3);
-          } else {
+          } else if (fvar2==1) {
             char str[SCRIPT_MAXSSIZE];
             lp=GetStringResult(lp,OPER_EQU,str,0);
             fvar=SML_Write(fvar1,str);
+          } else {
+#ifdef ED300L
+            fvar=SML_Status(fvar1);
+#else
+            fvar=0;
+#endif
           }
           lp++;
-          fvar=0;
           len=0;
           goto exit;
         }
@@ -2023,6 +2033,7 @@ char *getop(char *lp, uint8_t *operand) {
 }
 
 
+#ifdef ESP8266
 #if defined(ARDUINO_ESP8266_RELEASE_2_3_0) || defined(ARDUINO_ESP8266_RELEASE_2_4_0) || defined(ARDUINO_ESP8266_RELEASE_2_4_1)
 // All version before core 2.4.2
 // https://github.com/esp8266/Arduino/issues/2557
@@ -2043,6 +2054,12 @@ extern "C" {
 uint16_t GetStack(void) {
   register uint32_t *sp asm("a1");
   return (4 * (sp - g_pcont->stack));
+}
+#endif
+#else
+uint16_t GetStack(void) {
+  register uint8_t *sp asm("a1");
+  return (sp - pxTaskGetStackStart(NULL));
 }
 #endif
 
@@ -3101,7 +3118,7 @@ const char HTTP_FORM_SCRIPT[] PROGMEM =
 
 const char HTTP_FORM_SCRIPT1[] PROGMEM =
     "<div style='text-align:right' id='charNum'> </div>"
-    "<input style='width:3%%;' id='c%d' name='c%d' type='checkbox'%s><b>" D_SCRIPT_ENABLE "</b><br/>"
+    "<label><input style='width:3%%;' id='c%d' name='c%d' type='checkbox'%s><b>" D_SCRIPT_ENABLE "</b></label><br/>"
     "<br><textarea  id='t1' name='t1' rows='8' cols='80' maxlength='%d' style='font-size: 12pt' >";
 
 const char HTTP_FORM_SCRIPT1b[] PROGMEM =
@@ -4703,7 +4720,13 @@ void ScriptWebShow(void) {
 
 
 #ifdef USE_SENDMAIL
+
+#ifdef ESP8266
 void script_send_email_body(BearSSL::WiFiClientSecure_light *client) {
+#else
+void script_send_email_body(WiFiClient *client) {
+#endif
+
 uint8_t msect=Run_Scripter(">m",-2,0);
   if (msect==99) {
     char line[128];

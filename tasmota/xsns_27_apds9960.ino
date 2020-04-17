@@ -39,23 +39,24 @@
 #define XSNS_27             27
 #define XI2C_21             21  // See I2CDEVICES.md
 
-#if defined(USE_SHT) || defined(USE_VEML6070) || defined(USE_TSL2561)
-  #warning **** Turned off conflicting drivers SHT and VEML6070 ****
-  #ifdef USE_SHT
-  #undef USE_SHT          // SHT-Driver blocks gesture sensor
-  #endif
-  #ifdef USE_VEML6070
-  #undef USE_VEML6070     // address conflict on the I2C-bus
-  #endif
-  #ifdef USE_TSL2561
-  #undef USE_TSL2561     // possible address conflict on the I2C-bus
-  #endif
-#endif
+// #if defined(USE_SHT) || defined(USE_VEML6070) || defined(USE_TSL2561)
+//   #warning **** Turned off conflicting drivers SHT and VEML6070 ****
+//   #ifdef USE_SHT
+//   #undef USE_SHT          // SHT-Driver blocks gesture sensor
+//   #endif
+//   #ifdef USE_VEML6070
+//   #undef USE_VEML6070     // address conflict on the I2C-bus
+//   #endif
+//   #ifdef USE_TSL2561
+//   #undef USE_TSL2561     // possible address conflict on the I2C-bus
+//   #endif
+// #endif
 
 #define APDS9960_I2C_ADDR         0x39
 
 #define APDS9960_CHIPID_1         0xAB
 #define APDS9960_CHIPID_2         0x9C
+#define APDS9960_CHIPID_3         0xA8
 
 #define APDS9930_CHIPID_1         0x12  // we will check, if someone got an incorrect sensor
 #define APDS9930_CHIPID_2         0x39  // there are case reports about "accidentially bought" 9930's
@@ -1884,7 +1885,7 @@ void APDS9960_detect(void)
   if (APDS9960type || I2cActive(APDS9960_I2C_ADDR)) { return; }
 
   APDS9960type = I2cRead8(APDS9960_I2C_ADDR, APDS9960_ID);
-  if (APDS9960type == APDS9960_CHIPID_1 || APDS9960type == APDS9960_CHIPID_2) {
+  if (APDS9960type == APDS9960_CHIPID_1 || APDS9960type == APDS9960_CHIPID_2 || APDS9960type == APDS9960_CHIPID_3) {
     if (APDS9960_init()) {
       I2cSetActiveFound(APDS9960_I2C_ADDR, APDS9960stype);
 

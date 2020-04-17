@@ -180,12 +180,12 @@ void HAssAnnounceRelayLight(void)
     mqtt_data[0] = '\0'; // Clear retained message
 
     // Clear "other" topic first in case the device has been reconfigured from light to switch or vice versa
-    snprintf_P(unique_id, sizeof(unique_id), PSTR("%06X_%s_%d"), ESP.getChipId(), (is_topic_light) ? "RL" : "LI", i);
+    snprintf_P(unique_id, sizeof(unique_id), PSTR("%06X_%s_%d"), ESP_getChipId(), (is_topic_light) ? "RL" : "LI", i);
     snprintf_P(stopic, sizeof(stopic), PSTR(HOME_ASSISTANT_DISCOVERY_PREFIX "/%s/%s/config"),
                (is_topic_light) ? "switch" : "light", unique_id);
     MqttPublish(stopic, true);
     // Clear or Set topic
-    snprintf_P(unique_id, sizeof(unique_id), PSTR("%06X_%s_%d"), ESP.getChipId(), (is_topic_light) ? "LI" : "RL", i);
+    snprintf_P(unique_id, sizeof(unique_id), PSTR("%06X_%s_%d"), ESP_getChipId(), (is_topic_light) ? "LI" : "RL", i);
     snprintf_P(stopic, sizeof(stopic), PSTR(HOME_ASSISTANT_DISCOVERY_PREFIX "/%s/%s/config"),
                (is_topic_light) ? "light" : "switch", unique_id);
 
@@ -210,10 +210,14 @@ void HAssAnnounceRelayLight(void)
 
       Response_P(HASS_DISCOVER_BASE, name, state_topic, availability_topic);
       TryResponseAppend_P(HASS_DISCOVER_RELAY, command_topic, value_template, SettingsText(SET_STATE_TXT1), SettingsText(SET_STATE_TXT2));
-      TryResponseAppend_P(HASS_DISCOVER_DEVICE_INFO_SHORT, unique_id, ESP.getChipId());
+      TryResponseAppend_P(HASS_DISCOVER_DEVICE_INFO_SHORT, unique_id, ESP_getChipId());
 
 #ifdef USE_LIGHT
-      if (is_light || PWM_DIMMER == my_module_type)
+      if (is_light
+#ifdef ESP8266
+      || PWM_DIMMER == my_module_type
+#endif
+      )
       {
         char *brightness_command_topic = stemp1;
 
@@ -266,7 +270,7 @@ void HAssAnnouncerTriggers(uint8_t device, uint8_t present, uint8_t key, uint8_t
   mqtt_data[0] = '\0'; // Clear retained message
 
   for (uint8_t i = 2; i <= 3; i++) {
-    snprintf_P(unique_id, sizeof(unique_id), PSTR("%06X_%s_%d_%s"), ESP.getChipId(), key ? "SW" : "BTN", device + 1, GetStateText(i));
+    snprintf_P(unique_id, sizeof(unique_id), PSTR("%06X_%s_%d_%s"), ESP_getChipId(), key ? "SW" : "BTN", device + 1, GetStateText(i));
     snprintf_P(stopic, sizeof(stopic), PSTR(HOME_ASSISTANT_DISCOVERY_PREFIX "/device_automation/%s/config"), unique_id);
 
     if (Settings.flag.hass_discovery && present) {                // SetOption19 - Control Home Assistantautomatic discovery (See SetOption59)
@@ -290,7 +294,7 @@ void HAssAnnouncerTriggers(uint8_t device, uint8_t present, uint8_t key, uint8_t
         if (i == 3) { pload = hold; }
         GetTextIndexed(param, sizeof(param), pload, kHAssTriggerType);
         snprintf_P(subtype, sizeof(subtype), PSTR("%s_%d"), key ? "switch" : "button", device + 1);
-        Response_P(HASS_TRIGGER_TYPE, state_topic, GetStateText(i), param, subtype, ESP.getChipId());
+        Response_P(HASS_TRIGGER_TYPE, state_topic, GetStateText(i), param, subtype, ESP_getChipId());
       } else { mqtt_data[0] = '\0'; } // Need to be cleaned again to avoid duplicate.
     }
     MqttPublish(stopic, true);
@@ -306,7 +310,7 @@ void HAssAnnouncerBinSensors(uint8_t device, uint8_t present, uint8_t dual, uint
 
   mqtt_data[0] = '\0'; // Clear retained message
 
-  snprintf_P(unique_id, sizeof(unique_id), PSTR("%06X_SW_%d"), ESP.getChipId(), device + 1);
+  snprintf_P(unique_id, sizeof(unique_id), PSTR("%06X_SW_%d"), ESP_getChipId(), device + 1);
   snprintf_P(stopic, sizeof(stopic), PSTR(HOME_ASSISTANT_DISCOVERY_PREFIX "/binary_sensor/%s/config"), unique_id);
 
 
@@ -331,7 +335,7 @@ void HAssAnnouncerBinSensors(uint8_t device, uint8_t present, uint8_t dual, uint
       } else {
         TryResponseAppend_P(HASS_DISCOVER_BIN_PIR, PSTR(D_RSLT_STATE), SettingsText(SET_STATE_TXT2));
       }
-      TryResponseAppend_P(HASS_DISCOVER_DEVICE_INFO_SHORT, unique_id, ESP.getChipId());
+      TryResponseAppend_P(HASS_DISCOVER_DEVICE_INFO_SHORT, unique_id, ESP_getChipId());
       TryResponseAppend_P(PSTR("}"));
     }
   }
@@ -423,10 +427,13 @@ void HAssAnnounceButtons(void)
     uint8_t toggle = 1;
     uint8_t hold = 0;
 
+#ifdef ESP8266
     if (!button_index && ((SONOFF_DUAL == my_module_type) || (CH4 == my_module_type)))
     {
       button_present = 1;
-    } else {
+    } else
+#endif
+    {
       if (pin[GPIO_KEY1 + button_index] < 99) {
         button_present = 1;
       }
@@ -481,10 +488,10 @@ void HAssAnnounceSensor(const char *sensorname, const char *subsensortype, const
   char subname[20];
 
   mqtt_data[0] = '\0'; // Clear retained message
-  
-  // Clear or Set topic  
+
+  // Clear or Set topic
   NoAlNumToUnderscore(subname, MultiSubName); //Replace all non alphaumeric characters to '_' to avoid topic name issues
-  snprintf_P(unique_id, sizeof(unique_id), PSTR("%06X_%s_%s"), ESP.getChipId(), sensorname, subname);
+  snprintf_P(unique_id, sizeof(unique_id), PSTR("%06X_%s_%s"), ESP_getChipId(), sensorname, subname);
   snprintf_P(stopic, sizeof(stopic), PSTR(HOME_ASSISTANT_DISCOVERY_PREFIX "/sensor/%s/config"), unique_id);
 
   if (Settings.flag.hass_discovery)
@@ -499,7 +506,7 @@ void HAssAnnounceSensor(const char *sensorname, const char *subsensortype, const
     GetTopic_P(availability_topic, TELE, mqtt_topic, S_LWT);
 
     Response_P(HASS_DISCOVER_BASE, name, state_topic, availability_topic);
-    TryResponseAppend_P(HASS_DISCOVER_DEVICE_INFO_SHORT, unique_id, ESP.getChipId());
+    TryResponseAppend_P(HASS_DISCOVER_DEVICE_INFO_SHORT, unique_id, ESP_getChipId());
 
 
     char jname[32];
@@ -517,7 +524,7 @@ void HAssAnnounceSensor(const char *sensorname, const char *subsensortype, const
         case 3:
           snprintf_P(param1, sizeof(param1), PSTR("%s"), PressureUnit().c_str());
           break;
-        // case 4:   // Speed. Default to km/h if not set to have a graph representation under HAss   
+        // case 4:   // Speed. Default to km/h if not set to have a graph representation under HAss
         // case 5:
         // case 6:
         // case 7:
@@ -596,8 +603,8 @@ void HAssAnnounceSensors(void)
             for (auto subsensor : subsensors) {
               snprintf_P(NewSensorName, sizeof(NewSensorName), PSTR("%s %s"), NestedName, subsensor.key);
               HAssAnnounceSensor(sensorname, NestedName, NewSensorName, 0, 0, 1, subsensor.key);
-            }              
-          } else if (subsensor.value.is<JsonArray&>()) {           
+            }
+          } else if (subsensor.value.is<JsonArray&>()) {
             // If there is more than a value on sensor data, 'n' entitites will be created
             JsonArray& subsensors = subsensor.value.as<JsonArray&>();
             uint8_t subqty = subsensors.size();
@@ -625,7 +632,7 @@ void HAssAnnounceStatusSensor(void)
   mqtt_data[0] = '\0'; // Clear retained message
 
   // Clear or Set topic
-  snprintf_P(unique_id, sizeof(unique_id), PSTR("%06X_status"), ESP.getChipId());
+  snprintf_P(unique_id, sizeof(unique_id), PSTR("%06X_status"), ESP_getChipId());
   snprintf_P(stopic, sizeof(stopic), PSTR(HOME_ASSISTANT_DISCOVERY_PREFIX "/sensor/%s/config"), unique_id);
 
   if (Settings.flag.hass_discovery)
@@ -641,7 +648,7 @@ void HAssAnnounceStatusSensor(void)
 
     Response_P(HASS_DISCOVER_BASE, name, state_topic, availability_topic);
     TryResponseAppend_P(HASS_DISCOVER_SENSOR_HASS_STATUS, state_topic);
-    TryResponseAppend_P(HASS_DISCOVER_DEVICE_INFO, unique_id, ESP.getChipId(), SettingsText(SET_FRIENDLYNAME1),
+    TryResponseAppend_P(HASS_DISCOVER_DEVICE_INFO, unique_id, ESP_getChipId(), SettingsText(SET_FRIENDLYNAME1),
                         ModuleName().c_str(), my_version, my_image);
     TryResponseAppend_P(PSTR("}"));
   }
@@ -651,7 +658,7 @@ void HAssAnnounceStatusSensor(void)
 void HAssPublishStatus(void)
 {
   Response_P(PSTR("{\"" D_JSON_VERSION "\":\"%s%s\",\"" D_JSON_BUILDDATETIME "\":\"%s\","
-                  "\"" D_JSON_COREVERSION "\":\"" ARDUINO_ESP8266_RELEASE "\",\"" D_JSON_SDKVERSION "\":\"%s\","
+                  "\"" D_JSON_COREVERSION "\":\"" ARDUINO_CORE_RELEASE "\",\"" D_JSON_SDKVERSION "\":\"%s\","
                   "\"" D_CMND_MODULE "\":\"%s\",\"" D_JSON_RESTARTREASON "\":\"%s\",\"" D_JSON_UPTIME "\":\"%s\","
                   "\"WiFi " D_JSON_LINK_COUNT "\":%d,\"WiFi " D_JSON_DOWNTIME "\":\"%s\",\"" D_JSON_MQTT_COUNT "\":%d,"
                   "\"" D_JSON_BOOTCOUNT "\":%d,\"" D_JSON_SAVECOUNT "\":%d,\"" D_CMND_IPADDRESS "\":\"%s\","
